@@ -1,0 +1,134 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  POC stack: DogActivities Lambda for XRay tracing tests.
+
+Parameters:
+  NotificationEmail:
+    Type: String
+    Description: Email address subscribed to the SNS topic.
+
+  DeploymentBucket:
+    Type: String
+    Default: pwhittney-deployment-aadg6yrI
+    Description: S3 bucket for deployments
+
+Resources:
+
+  # DynamoDB Table
+  DogActivitiesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: DogActivities
+      BillingMode: PAY_PER_REQUEST
+
+      # Only needs keys defined, code to supply the rest
+      AttributeDefinitions:
+
+        - AttributeName: DogName
+          AttributeType: S
+        - AttributeName: Date
+          AttributeType: S
+      
+      KeySchema:
+        - AttributeName: DogName
+          KeyType: HASH      # Partition key
+        - AttributeName: Date
+          KeyType: RANGE     # Sort key
+      
+      # Optional: Tags
+      Tags:
+        - Key: Environment
+          Value: POC
+
+  # SNS for email
+  NotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: DATopic
+
+  NotificationSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref NotificationTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  # IAM Role for lambda access needs
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaBasicLogging
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+        - PolicyName: DynamoDBReadAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:GetItem
+                Resource: !GetAtt DogActivitiesTable.Arn
+        - PolicyName: SNSPublishAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref NotificationTopic
+        - PolicyName: XRayWriteAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                Resource: "*"
+
+Outputs:
+  TableName:
+    Description: DynamoDB table name
+    Value: !Ref DogActivitiesTable
+    Export:
+      Name: !Sub '${AWS::StackName}-TableName'
+  
+  TableArn:
+    Description: DynamoDB table ARN
+    Value: !GetAtt DogActivitiesTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-TableArn'
+  
+  TopicArn:
+    Description: SNS Topic ARN
+    Value: !Ref NotificationTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-TopicArn'
+  
+  DeploymentBucket:
+    Description: S3 bucket for Lambda deployment packages
+    Value: !Ref DeploymentBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-DeploymentBucket'
+  
+  LambdaExecutionRoleArn:
+    Description: IAM Role ARN for Lambda execution
+    Value: !GetAtt LambdaExecutionRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaRoleArn'
