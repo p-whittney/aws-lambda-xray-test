@@ -45,7 +45,11 @@ def filter_items(items: list) -> list:
     result = []
     for item in items:
         if item["ActivityType"] == "WALK":
-            result.append(item['Date'])
+            result.append({
+                'Date': item['Date'],
+                'ActivityType': item['ActivityType'],
+                'Notes': item.get('Notes', 'No notes')  # Use .get() in case Notes is missing
+            })
     return result
 
 def publish_to_sns(items: list):
