@@ -82,7 +82,9 @@ jobs:
     if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/workflow-test')) && needs.detect-changes.outputs.code_changed == 'true'
     needs: [detect-changes, build-code]
     runs-on: ubuntu-latest
-    environment: main  # Temporarily removed to test without environment
+    environment: main
+    outputs:
+      code_version: ${{ steps.version.outputs.version }}
     steps:
       # - name: Debug GitHub context
       #   run: |
@@ -117,6 +119,8 @@ jobs:
     needs: [detect-changes, build-layer]
     runs-on: ubuntu-latest
     environment: main
+    outputs:
+      layer_version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -134,3 +138,63 @@ jobs:
         run: |
           aws s3 cp build/aws-xray-sdk.zip \
             "s3://${{ vars.S3_BUCKET }}/lambda/layers/aws-xray-sdk/${{ steps.version.outputs.version }}/aws-xray-sdk-layer.zip"
+
+  # deploy-lambda:
+  #   # Deploy Lambda function after S3 uploads complete (only on main branch)
+  #   if: |
+  #     always() &&
+  #     github.event_name == 'push' && 
+  #     github.ref == 'refs/heads/main' &&
+  #     (needs.detect-changes.outputs.code_changed == 'true' || needs.detect-changes.outputs.layer_changed == 'true') &&
+  #     (needs.push-code.result == 'success' || needs.push-code.result == 'skipped') &&
+  #     (needs.push-layer.result == 'success' || needs.push-layer.result == 'skipped')
+  #   needs: 
+  #     - detect-changes
+  #     - push-code
+  #     - push-layer
+  #   runs-on: ubuntu-latest
+  #   environment: main
+  #   steps:
+      
+  #     - uses: actions/checkout@v4
+      
+  #     - name: Deployment info
+  #       run: |
+  #         echo "Code changed: ${{ needs.detect-changes.outputs.code_changed }}"
+  #         echo "Layer changed: ${{ needs.detect-changes.outputs.layer_changed }}"
+      
+  #     - name: Get code version
+  #       id: code-version
+  #       run: echo "version=$(cat code/dog-activities/VERSION || echo v1.0)" >> $GITHUB_OUTPUT
+      
+  #     - name: Get layer version
+  #       id: layer-version
+  #       run: echo "version=$(cat layers/aws-xray-sdk/VERSION || echo v1.0)" >> $GITHUB_OUTPUT
+      
+  #     - uses: aws-actions/configure-aws-credentials@v4
+  #       with:
+  #         role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+  #         aws-region: us-east-1
+      
+  #     - name: Deploy Lambda via CloudFormation
+  #       run: |
+  #         echo "Deploying Lambda with:"
+  #         echo "  Code version: ${{ steps.code-version.outputs.version }}"
+  #         echo "  Layer version: ${{ steps.layer-version.outputs.version }}"
+          
+  #         aws cloudformation deploy \
+  #           --template-file cloudformation/lambda.yaml \
+  #           --stack-name dog-activities-lambda \
+  #           --parameter-overrides \
+  #             SetupStackName=dog-activities-setup \
+  #             CodeVersion=${{ steps.code-version.outputs.version }} \
+  #             LayerVersion=${{ steps.layer-version.outputs.version }} \
+  #           --no-fail-on-empty-changeset
+      
+  #     - name: Verify deployment
+  #       run: |
+  #         echo "Lambda function updated!"
+  #         aws lambda get-function-configuration \
+  #           --function-name dog-activities \
+  #           --query '[FunctionName, LastModified, Runtime, CodeSize]' \
+  #           --output table

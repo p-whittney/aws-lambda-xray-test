@@ -1,21 +1,21 @@
-S3=pwhittney-deployment-aadg6yri
-PYTHON_APP_VERSION=v1.0
-PYTHON_APP_PATH=lambda/code/dog-activities
-LAYER_VERSION=v1.0
-LAYER_PATH=lambda/layers/aws-xray-sdk
-PYTHON_VERSION=3.13
-VENV_DIR=.venv
-LAYER_DIR=layers/aws-xray-sdk
+ALLOWED_BRANCH ?= *
+CHANGESET_NAME=update-$(TIMESTAMP)
 EMAIL=user@example.com
 TIMESTAMP=$(shell date +%Y%m%d-%H%M%S)
-CHANGESET_NAME=update-$(TIMESTAMP)
-ALLOWED_BRANCH ?= *
+VENV_DIR=.venv
+
+LAYER_PATH=lambda/layers/aws-xray-sdk
+LAYER_VERSION=v1.0
+
+PYTHON_APP_PATH=lambda/code/dog-activities
+PYTHON_APP_VERSION=v1.1
+PYTHON_VERSION=3.13
 
 -include Makefile.env
 
 # Cloudformation targets for : setup (needed before lambda)
 
-create-cf-deploy-setup:
+deploy-cf-setup:
 	aws cloudformation deploy \
 		--template-file cloudformation/setup.yaml \
 		--stack-name dog-activities-setup \
@@ -45,23 +45,30 @@ execute-cf-setup:
 		--change-set-name {}
 	aws cloudformation wait stack-update-complete --stack-name dog-activities-setup
 
-show-cf-deploy-setup:
+show-cf-setup:
 	aws cloudformation list-exports \
     	--query "Exports[?contains(ExportingStackId, 'dog-activities-setup')].{Name:Name, Value:Value}"
 
 # Cloudformation targets for : lambda
 
-create-cf-deploy-lambda:
+deploy-cf-lambda:
 	aws cloudformation deploy \
 		--template-file cloudformation/lambda.yaml \
 		--stack-name dog-activities-lambda \
-		--parameter-overrides SetupStackName=dog-activities-setup
+		--parameter-overrides \
+			SetupStackName=dog-activities-setup \
+			CodeVersion=${PYTHON_APP_VERSION} \
+			LayerVersion=${LAYER_VERSION} \
+		--no-fail-on-empty-changeset
 
 update-cf-lambda:
 	aws cloudformation create-change-set \
 		--stack-name dog-activities-lambda \
 		--template-body file://cloudformation/lambda.yaml \
-		--parameters ParameterKey=SetupStackName,ParameterValue=dog-activities-setup \
+		--parameters \
+			ParameterKey=SetupStackName,ParameterValue=dog-activities-setup \
+			ParameterKey=CodeVersion,ParameterValue=${PYTHON_APP_VERSION} \
+			ParameterKey=LayerVersion,ParameterValue=${LAYER_VERSION} \
 		--change-set-name $(CHANGESET_NAME)
 
 review-cf-lambda:
@@ -81,7 +88,7 @@ execute-cf-lambda:
 
 # Cloudformation targets for : oidc
 
-create-cf-deploy-oidc:
+deploy-cf-oidc:
 	aws cloudformation deploy \
 		--template-file cloudformation/oidc.yaml \
 		--stack-name dog-activities-oidc \
@@ -121,14 +128,16 @@ execute-cf-oidc:
 
 # Python Code build and deploys
 
+# setup venv using all used packages
 .venv:
 	uv venv --python "${PYTHON_VERSION}" "${VENV_DIR}"
 	uv pip install \
 		--python "${VENV_DIR}/bin/python" \
 		boto3 \
-		-r "${LAYER_DIR}/requirements.txt"
+		-r "layers/aws-xray-sdk/requirements.txt"
 
 # Build the layer directory when requirements.txt changes
+
 build/aws-xray-sdk/python: layers/aws-xray-sdk/requirements.txt .venv
 	rm -rf build/aws-xray-sdk
 	mkdir -p build/aws-xray-sdk/python
@@ -141,7 +150,7 @@ build/aws-xray-sdk.zip: build/aws-xray-sdk/python
 	(cd "build/aws-xray-sdk/" && zip -qr "../aws-xray-sdk.zip" python)
 
 copy-lambda-layer: build/aws-xray-sdk.zip
-	aws s3 cp build/aws-xray-sdk.zip \
+	aws s3 cp $@ \
 		s3://${S3}/${LAYER_PATH}/${LAYER_VERSION}/aws-xray-sdk.zip
 
 # Main python Lambda Code
@@ -151,5 +160,5 @@ build/dog-activities.zip: code/dog-activities/dogActivities.py
 	(cd "code/dog-activities/" && zip -qr "../../build/dog-activities.zip" .)
 
 copy-lambda-code: build/dog-activities.zip
-	aws s3 cp build/dog-activities.zip \
+	aws s3 cp $@ \
 		s3://${S3}/${PYTHON_APP_PATH}/${PYTHON_APP_VERSION}/dog-activities.zip
