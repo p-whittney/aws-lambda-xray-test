@@ -10,7 +10,10 @@ EMAIL=user@example.com
 TIMESTAMP=$(shell date +%Y%m%d-%H%M%S)
 CHANGESET_NAME=update-$(TIMESTAMP)
 
-# setup targets
+-include Makefile.env
+
+# Cloudformation targets for : setup (needed before lambda)
+
 create-cf-deploy-setup:
 	aws cloudformation deploy \
 		--template-file cloudformation/setup.yaml \
@@ -45,7 +48,7 @@ show-cf-deploy-setup:
 	aws cloudformation list-exports \
     	--query "Exports[?contains(ExportingStackId, 'dog-activities-setup')].{Name:Name, Value:Value}"
 
-# Lambda Setup
+# Cloudformation targets for : lambda
 
 create-cf-deploy-lambda:
 	aws cloudformation deploy \
@@ -74,6 +77,44 @@ execute-cf-lambda:
 		--stack-name dog-activities-lambda \
 		--change-set-name {}
 	aws cloudformation wait stack-update-complete --stack-name dog-activities-lambda
+
+# Cloudformation targets for : oidc
+
+create-cf-deploy-oidc:
+	aws cloudformation deploy \
+		--template-file cloudformation/oidc.yaml \
+		--stack-name dog-activities-oidc \
+		--capabilities CAPABILITY_NAMED_IAM \
+		--parameter-overrides \
+			GitHubOrg=${GITHUB_ORG} \
+			GitHubRepo=${GITHUB_REPO} \
+			DeploymentBucket=${S3}
+
+update-cf-oidc:
+	aws cloudformation create-change-set \
+		--stack-name dog-activities-oidc \
+		--template-body file://cloudformation/oidc.yaml \
+		--capabilities CAPABILITY_NAMED_IAM \
+		--parameters \
+			ParameterKey=GitHubOrg,ParameterValue=${GITHUB_ORG} \
+			ParameterKey=GitHubRepo,ParameterValue=${GITHUB_REPO} \
+			ParameterKey=DeploymentBucket,ParameterValue=${S3} \
+		--change-set-name $(CHANGESET_NAME)
+
+review-cf-oidc:
+	@aws cloudformation list-change-sets --stack-name dog-activities-oidc --query 'Summaries[0].ChangeSetName' --output text | \
+	xargs -I {} aws cloudformation describe-change-set \
+		--stack-name dog-activities-oidc \
+		--change-set-name {} \
+		--query 'Changes[*].[ResourceChange.Action, ResourceChange.LogicalResourceId, ResourceChange.ResourceType, ResourceChange.Replacement]' \
+		--output table
+
+execute-cf-oidc:
+	@aws cloudformation list-change-sets --stack-name dog-activities-oidc --query 'Summaries[0].ChangeSetName' --output text | \
+	xargs -I {} aws cloudformation execute-change-set \
+		--stack-name dog-activities-oidc \
+		--change-set-name {}
+	aws cloudformation wait stack-update-complete --stack-name dog-activities-oidc
 
 # Python Code build and deploys
 

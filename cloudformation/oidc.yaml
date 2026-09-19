@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  GitHub Actions OIDC federation for this repo
+  Allows the github repo to assume the IAM role for this project
+  Note: AWS Account global. Set CreateOidcProvider=false for just adding roles
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Description: GitHub org or username that owns the repo.
+
+  GitHubRepo:
+    Type: String
+    Description: Repo name (without org prefix), e.g. "lambda-poc".
+
+  AllowedBranch:
+    Type: String
+    Default: main
+    Description: Only workflow runs on this branch may assume the role.
+
+  DeploymentBucket:
+    Type: String
+    Default: dev-bucket
+    Description: S3 bucket the role is allowed to write Lambda artifacts to.
+
+  CreateOidcProvider:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+    Description: >
+      Set to "false" if a GitHub OIDC provider already exists in this AWS account
+
+Conditions:
+  ShouldCreateOidcProvider: !Equals [!Ref CreateOidcProvider, "true"]
+
+Resources:
+
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      # GitHub's OIDC thumbprint can be verified via their TLS SHA-1 Fingerprint of the tls cert at 
+      # https://token.actions.githubusercontent.com/.well-known/openid-configuration
+      ThumbprintList:
+        - 06d927fecd0a84aeba28aad1d808139470fe95c3
+
+  GitHubActionsDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: github-actions-lambda-poc-deploy
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - ShouldCreateOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${AllowedBranch}"
+      Policies:
+        - PolicyName: LambdaPOCPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${DeploymentBucket}/lambda/code/*"
+                  - !Sub "arn:aws:s3:::${DeploymentBucket}/lambda/layers/*"
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${DeploymentBucket}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - "lambda/code/*"
+                      - "lambda/layers/*"
+
+Outputs:
+  RoleArn:
+    Description: Set this as the AWS_DEPLOY_ROLE_ARN GitHub Actions secret.
+    Value: !GetAtt GitHubActionsDeployRole.Arn
