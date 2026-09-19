@@ -67,10 +67,12 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
-                token.actions.githubusercontent.com:sub: !If
-                  - AllowAllBranches
-                  - !Sub "repo:${GitHubOrg}/${GitHubRepo}:*"
-                  - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${AllowedBranch}"
+                token.actions.githubusercontent.com:sub:
+                  - !If
+                    - AllowAllBranches
+                    - !Sub "repo:${GitHubOrg}/${GitHubRepo}:*"
+                    - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${AllowedBranch}"
+                  - !Sub "repo:${GitHubOrg}/${GitHubRepo}:environment:*"
       Policies:
         - PolicyName: LambdaPOCPolicy
           PolicyDocument:

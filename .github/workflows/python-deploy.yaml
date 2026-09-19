@@ -54,29 +54,29 @@ jobs:
           path: build/dog-activities.zip
           retention-days: 1
 
-  build-layer:
-    if: needs.detect-changes.outputs.layer_changed == 'true'
-    needs: [detect-changes]
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.bump.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
+  # build-layer:
+  #   if: needs.detect-changes.outputs.layer_changed == 'true'
+  #   needs: [detect-changes]
+  #   runs-on: ubuntu-latest
+  #   outputs:
+  #     version: ${{ steps.bump.outputs.version }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         ref: ${{ github.head_ref || github.ref_name }}
 
-      - uses: astral-sh/setup-uv@v3
-        with:
-          version: "latest"
+  #     - uses: astral-sh/setup-uv@v3
+  #       with:
+  #         version: "latest"
 
-      - name: Build layer zip only
-        run: make build/aws-xray-sdk.zip
+  #     - name: Build layer zip only
+  #       run: make build/aws-xray-sdk.zip
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: lambda-layer
-          path: build/aws-xray-sdk.zip
-          retention-days: 1
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: lambda-layer
+  #         path: build/aws-xray-sdk.zip
+  #         retention-days: 1
 
   push-code:
     if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/workflow-test')) && needs.detect-changes.outputs.code_changed == 'true'
@@ -102,6 +102,21 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
           role-session-name: GitHubActions-${{ github.run_id }}
+        continue-on-error: true
+        id: aws-creds
+      
+      - name: Show AWS credentials error if failed
+        if: steps.aws-creds.outcome == 'failure'
+        run: |
+          echo "❌ Failed to assume role"
+          echo "Role ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}"
+          echo "Expected identity: repo:${{ github.repository }}:${{ github.ref }}"
+          echo ""
+          echo "Possible issues:"
+          echo "1. Secret AWS_DEPLOY_ROLE_ARN not set in environment 'main'"
+          echo "2. OIDC provider thumbprint mismatch"
+          echo "3. IAM role trust policy doesn't match this repo/branch"
+          exit 1
       - name: Get version
         id: version
         run: echo "version=$(cat code/dog-activities/VERSION || echo v1.0)" >> $GITHUB_OUTPUT
@@ -110,25 +125,25 @@ jobs:
           aws s3 cp build/dog-activities.zip \
             "s3://${{ vars.S3_BUCKET }}/lambda/code/dog-activities/${{ steps.version.outputs.version }}/dog-activities.zip"
 
-  push-layer:
-    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/workflow-test')) && needs.detect-changes.outputs.layer_changed == 'true'
-    needs: [detect-changes, build-layer]
-    runs-on: ubuntu-latest
-    environment: main
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: lambda-layer
-          path: build
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: us-east-1
-      - name: Get version
-        id: version
-        run: echo "version=$(cat layers/aws-xray-sdk/VERSION || echo v1.0)" >> $GITHUB_OUTPUT
-      - name: Upload layer zip to S3
-        run: |
-          aws s3 cp build/aws-xray-sdk.zip \
-            "s3://${{ vars.S3_BUCKET }}/lambda/layers/aws-xray-sdk/${{ steps.version.outputs.version }}/aws-xray-sdk-layer.zip"
+  # push-layer:
+  #   if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/workflow-test')) && needs.detect-changes.outputs.layer_changed == 'true'
+  #   needs: [detect-changes, build-layer]
+  #   runs-on: ubuntu-latest
+  #   environment: main
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/download-artifact@v4
+  #       with:
+  #         name: lambda-layer
+  #         path: build
+  #     - uses: aws-actions/configure-aws-credentials@v4
+  #       with:
+  #         role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+  #         aws-region: us-east-1
+  #     - name: Get version
+  #       id: version
+  #       run: echo "version=$(cat layers/aws-xray-sdk/VERSION || echo v1.0)" >> $GITHUB_OUTPUT
+  #     - name: Upload layer zip to S3
+  #       run: |
+  #         aws s3 cp build/aws-xray-sdk.zip \
+  #           "s3://${{ vars.S3_BUCKET }}/lambda/layers/aws-xray-sdk/${{ steps.version.outputs.version }}/aws-xray-sdk-layer.zip"
