@@ -82,7 +82,7 @@ jobs:
     if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/workflow-test')) && needs.detect-changes.outputs.code_changed == 'true'
     needs: [detect-changes, build-code]
     runs-on: ubuntu-latest
-    environment: main
+    # environment: main  # Temporarily removed to test without environment
     steps:
       - name: Debug GitHub context
         run: |

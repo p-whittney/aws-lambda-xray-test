@@ -68,6 +68,10 @@ Resources:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
                 token.actions.githubusercontent.com:sub:
+                  # New GitHub OIDC format with numeric IDs (current)
+                  - !Sub "repo:${GitHubOrg}@*/${GitHubRepo}@*:*"
+                  - !Sub "repo:${GitHubOrg}@*/${GitHubRepo}@*:environment:*"
+                  # Old format (without IDs) - for backwards compatibility
                   - !If
                     - AllowAllBranches
                     - !Sub "repo:${GitHubOrg}/${GitHubRepo}:*"
