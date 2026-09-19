@@ -10,6 +10,7 @@ permissions:
   # for AWS OIDC Role assume
   id-token: write
   pull-requests: read
+  contents: read
 
 jobs:
   detect-changes:
