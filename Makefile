@@ -147,6 +147,7 @@ copy-lambda-layer: build/aws-xray-sdk.zip
 # Main python Lambda Code
 
 build/dog-activities.zip: code/dog-activities/dogActivities.py
+	mkdir -p build
 	(cd "code/dog-activities/" && zip -qr "../../build/dog-activities.zip" .)
 
 copy-lambda-code: build/dog-activities.zip
