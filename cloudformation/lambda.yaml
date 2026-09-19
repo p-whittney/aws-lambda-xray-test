@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Lambda functions for Dog Activities POC with X-Ray tracing'
+
+Parameters:
+  SetupStackName:
+    Type: String
+    Default: dog-activities-setup
+    Description: Name of the setup stack to import values from
+  
+  CodeVersion:
+    Type: String
+    Default: v1.0
+    Description: Version of the Lambda code to deploy
+  
+  LayerVersion:
+    Type: String
+    Default: v1.0
+    Description: Version of the X-Ray SDK layer to use
+
+Resources:
+  # AWS X-Ray SDK Lambda Layer
+  XRaySDKLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: aws-xray-sdk-layer
+      Description: !Sub 'AWS X-Ray SDK ${LayerVersion}'
+      Content:
+        S3Bucket: !ImportValue
+          Fn::Sub: '${SetupStackName}-DeploymentBucket'
+        S3Key: !Sub 'lambda/layers/aws-xray-sdk/${LayerVersion}/aws-xray-sdk.zip'
+      CompatibleRuntimes:
+        - python3.13
+
+  # Dog Activities Lambda Function
+  DogActivityLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: dogActivities
+      Runtime: python3.13
+      Handler: dogActivities.lambda_handler
+      Role: !ImportValue 
+        Fn::Sub: '${SetupStackName}-LambdaRoleArn'
+      
+      # Lambda code from S3
+      Code:
+        S3Bucket: !ImportValue
+          Fn::Sub: '${SetupStackName}-DeploymentBucket'
+        S3Key: !Sub 'lambda/code/dog-activities/${CodeVersion}/dog-activities.zip'
+      
+      # Attach X-Ray SDK layer
+      Layers:
+        - !Ref XRaySDKLayer
+      
+      Environment:
+        Variables:
+          TABLE_NAME: !ImportValue
+            Fn::Sub: '${SetupStackName}-TableName'
+          SNS_TOPIC_ARN: !ImportValue
+            Fn::Sub: '${SetupStackName}-TopicArn'
+      
+      # Enable X-Ray tracing
+      TracingConfig:
+        Mode: Active
+      
+      Timeout: 30
+      MemorySize: 256
+      
+      Tags:
+        - Key: Environment
+          Value: POC
+
+Outputs:
+  LambdaFunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt DogActivityLambda.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaFunctionArn'
+  
+  LambdaFunctionName:
+    Description: Lambda function name
+    Value: !Ref DogActivityLambda
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaFunctionName'
+  
+  XRayLayerArn:
+    Description: X-Ray SDK Layer ARN
+    Value: !Ref XRaySDKLayer
+    Export:
+      Name: !Sub '${AWS::StackName}-XRayLayerArn'

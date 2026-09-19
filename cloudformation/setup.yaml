@@ -7,12 +7,29 @@ Parameters:
     Type: String
     Description: Email address subscribed to the SNS topic.
 
-  DeploymentBucket:
-    Type: String
-    Default: pwhittney-deployment-aadg6yrI
-    Description: S3 bucket for deployments
-
 Resources:
+
+  # S3 Bucket for Lambda deployments
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: pwhittney-deployment-aadg6yri
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Environment
+          Value: POC
+        - Key: Purpose
+          Value: Lambda Deployment
 
   # DynamoDB Table
   DogActivitiesTable:
