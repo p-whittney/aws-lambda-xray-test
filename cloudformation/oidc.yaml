@@ -15,8 +15,8 @@ Parameters:
 
   AllowedBranch:
     Type: String
-    Default: main
-    Description: Only workflow runs on this branch may assume the role.
+    Default: "*"
+    Description: Branch filter - use '*' for any branch, or specify branch name like 'main'.
 
   DeploymentBucket:
     Type: String
@@ -32,6 +32,7 @@ Parameters:
 
 Conditions:
   ShouldCreateOidcProvider: !Equals [!Ref CreateOidcProvider, "true"]
+  AllowAllBranches: !Equals [!Ref AllowedBranch, "*"]
 
 Resources:
 
@@ -65,7 +66,10 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${AllowedBranch}"
+                token.actions.githubusercontent.com:sub: !If
+                  - AllowAllBranches
+                  - !Sub "repo:${GitHubOrg}/${GitHubRepo}:*"
+                  - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${AllowedBranch}"
       Policies:
         - PolicyName: LambdaPOCPolicy
           PolicyDocument:

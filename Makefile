@@ -9,6 +9,7 @@ LAYER_DIR=layers/aws-xray-sdk
 EMAIL=user@example.com
 TIMESTAMP=$(shell date +%Y%m%d-%H%M%S)
 CHANGESET_NAME=update-$(TIMESTAMP)
+ALLOWED_BRANCH ?= *
 
 -include Makefile.env
 
@@ -88,6 +89,7 @@ create-cf-deploy-oidc:
 		--parameter-overrides \
 			GitHubOrg=${GITHUB_ORG} \
 			GitHubRepo=${GITHUB_REPO} \
+			AllowedBranch="${ALLOWED_BRANCH}" \
 			DeploymentBucket=${S3}
 
 update-cf-oidc:
@@ -99,6 +101,7 @@ update-cf-oidc:
 			ParameterKey=GitHubOrg,ParameterValue=${GITHUB_ORG} \
 			ParameterKey=GitHubRepo,ParameterValue=${GITHUB_REPO} \
 			ParameterKey=DeploymentBucket,ParameterValue=${S3} \
+			ParameterKey=AllowedBranch,ParameterValue=${ALLOWED_BRANCH} \
 		--change-set-name $(CHANGESET_NAME)
 
 review-cf-oidc:
