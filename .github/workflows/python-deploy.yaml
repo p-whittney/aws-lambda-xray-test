@@ -7,10 +7,9 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  # for AWS OIDC Role assume
-  id-token: write
+  id-token: write   # Required for OIDC
+  contents: read    # Required for checkout
   pull-requests: read
-  contents: read
 
 jobs:
   detect-changes:
@@ -85,15 +84,24 @@ jobs:
     runs-on: ubuntu-latest
     environment: main
     steps:
+      - name: Debug GitHub context
+        run: |
+          echo "Repository: ${{ github.repository }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "SHA: ${{ github.sha }}"
+          echo "Event: ${{ github.event_name }}"
+          echo "Expected sub: repo:${{ github.repository }}:${{ github.ref }}"
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: lambda-code
           path: build
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4.0.2
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
+          role-session-name: GitHubActions-${{ github.run_id }}
       - name: Get version
         id: version
         run: echo "version=$(cat code/dog-activities/VERSION || echo v1.0)" >> $GITHUB_OUTPUT
