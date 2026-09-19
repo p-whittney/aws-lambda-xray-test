@@ -43,10 +43,11 @@ Resources:
       Url: https://token.actions.githubusercontent.com
       ClientIdList:
         - sts.amazonaws.com
-      # GitHub's OIDC thumbprint can be verified via their TLS SHA-1 Fingerprint of the tls cert at 
-      # https://token.actions.githubusercontent.com/.well-known/openid-configuration
+      # GitHub's OIDC thumbprint (current as of 2023)
+      # Can be verified at: https://github.blog/changelog/
+      # Or via: openssl s_client -servername token.actions.githubusercontent.com -showcerts -connect token.actions.githubusercontent.com:443
       ThumbprintList:
-        - 06d927fecd0a84aeba28aad1d808139470fe95c3
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
 
   GitHubActionsDeployRole:
     Type: AWS::IAM::Role
@@ -66,10 +67,16 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
-                token.actions.githubusercontent.com:sub: !If
-                  - AllowAllBranches
-                  - !Sub "repo:${GitHubOrg}/${GitHubRepo}:*"
-                  - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${AllowedBranch}"
+                token.actions.githubusercontent.com:sub:
+                  # New GitHub OIDC format with numeric IDs (current)
+                  - !Sub "repo:${GitHubOrg}@*/${GitHubRepo}@*:*"
+                  - !Sub "repo:${GitHubOrg}@*/${GitHubRepo}@*:environment:*"
+                  # Old format (without IDs) - for backwards compatibility
+                  - !If
+                    - AllowAllBranches
+                    - !Sub "repo:${GitHubOrg}/${GitHubRepo}:*"
+                    - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${AllowedBranch}"
+                  - !Sub "repo:${GitHubOrg}/${GitHubRepo}:environment:*"
       Policies:
         - PolicyName: LambdaPOCPolicy
           PolicyDocument:

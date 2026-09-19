@@ -1,0 +1,200 @@
+name: Build and Push Python Code
+
+on:
+  push:
+    branches: [main, workflow-test]
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write   # Required for OIDC
+  contents: read    # Required for checkout
+  pull-requests: read
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code_changed: ${{ steps.filter.outputs.code }}
+      layer_changed: ${{ steps.filter.outputs.layer }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'code/dog-activities/**'
+              - 'Makefile'
+            layer:
+              - 'layers/aws-xray-sdk/**'
+              - 'Makefile'
+
+  build-code:
+    if: needs.detect-changes.outputs.code_changed == 'true'
+    needs: [detect-changes]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Build code zip only
+        run: make build/dog-activities.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lambda-code
+          path: build/dog-activities.zip
+          retention-days: 1
+
+  build-layer:
+    if: needs.detect-changes.outputs.layer_changed == 'true'
+    needs: [detect-changes]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Build layer zip only
+        run: make build/aws-xray-sdk.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lambda-layer
+          path: build/aws-xray-sdk.zip
+          retention-days: 1
+
+  push-code:
+    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/workflow-test')) && needs.detect-changes.outputs.code_changed == 'true'
+    needs: [detect-changes, build-code]
+    runs-on: ubuntu-latest
+    environment: main
+    outputs:
+      code_version: ${{ steps.version.outputs.version }}
+    steps:
+      # - name: Debug GitHub context
+      #   run: |
+      #     echo "Repository: ${{ github.repository }}"
+      #     echo "Ref: ${{ github.ref }}"
+      #     echo "SHA: ${{ github.sha }}"
+      #     echo "Event: ${{ github.event_name }}"
+      #     echo "Expected sub: repo:${{ github.repository }}:${{ github.ref }}"
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: lambda-code
+          path: build
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4.0.2
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActions-${{ github.run_id }}
+        continue-on-error: true
+        id: aws-creds
+      - name: Get version
+        id: version
+        run: echo "version=$(cat code/dog-activities/VERSION || echo v1.0)" >> $GITHUB_OUTPUT
+      - name: Upload code zip to S3
+        run: |
+          aws s3 cp build/dog-activities.zip \
+            "s3://${{ vars.S3_BUCKET }}/lambda/code/dog-activities/${{ steps.version.outputs.version }}/dog-activities.zip"
+
+  push-layer:
+    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/workflow-test')) && needs.detect-changes.outputs.layer_changed == 'true'
+    needs: [detect-changes, build-layer]
+    runs-on: ubuntu-latest
+    environment: main
+    outputs:
+      layer_version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: lambda-layer
+          path: build
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Get version
+        id: version
+        run: echo "version=$(cat layers/aws-xray-sdk/VERSION || echo v1.0)" >> $GITHUB_OUTPUT
+      - name: Upload layer zip to S3
+        run: |
+          aws s3 cp build/aws-xray-sdk.zip \
+            "s3://${{ vars.S3_BUCKET }}/lambda/layers/aws-xray-sdk/${{ steps.version.outputs.version }}/aws-xray-sdk-layer.zip"
+
+  # deploy-lambda:
+  #   # Deploy Lambda function after S3 uploads complete (only on main branch)
+  #   if: |
+  #     always() &&
+  #     github.event_name == 'push' && 
+  #     github.ref == 'refs/heads/main' &&
+  #     (needs.detect-changes.outputs.code_changed == 'true' || needs.detect-changes.outputs.layer_changed == 'true') &&
+  #     (needs.push-code.result == 'success' || needs.push-code.result == 'skipped') &&
+  #     (needs.push-layer.result == 'success' || needs.push-layer.result == 'skipped')
+  #   needs: 
+  #     - detect-changes
+  #     - push-code
+  #     - push-layer
+  #   runs-on: ubuntu-latest
+  #   environment: main
+  #   steps:
+      
+  #     - uses: actions/checkout@v4
+      
+  #     - name: Deployment info
+  #       run: |
+  #         echo "Code changed: ${{ needs.detect-changes.outputs.code_changed }}"
+  #         echo "Layer changed: ${{ needs.detect-changes.outputs.layer_changed }}"
+      
+  #     - name: Get code version
+  #       id: code-version
+  #       run: echo "version=$(cat code/dog-activities/VERSION || echo v1.0)" >> $GITHUB_OUTPUT
+      
+  #     - name: Get layer version
+  #       id: layer-version
+  #       run: echo "version=$(cat layers/aws-xray-sdk/VERSION || echo v1.0)" >> $GITHUB_OUTPUT
+      
+  #     - uses: aws-actions/configure-aws-credentials@v4
+  #       with:
+  #         role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+  #         aws-region: us-east-1
+      
+  #     - name: Deploy Lambda via CloudFormation
+  #       run: |
+  #         echo "Deploying Lambda with:"
+  #         echo "  Code version: ${{ steps.code-version.outputs.version }}"
+  #         echo "  Layer version: ${{ steps.layer-version.outputs.version }}"
+          
+  #         aws cloudformation deploy \
+  #           --template-file cloudformation/lambda.yaml \
+  #           --stack-name dog-activities-lambda \
+  #           --parameter-overrides \
+  #             SetupStackName=dog-activities-setup \
+  #             CodeVersion=${{ steps.code-version.outputs.version }} \
+  #             LayerVersion=${{ steps.layer-version.outputs.version }} \
+  #           --no-fail-on-empty-changeset
+      
+  #     - name: Verify deployment
+  #       run: |
+  #         echo "Lambda function updated!"
+  #         aws lambda get-function-configuration \
+  #           --function-name dog-activities \
+  #           --query '[FunctionName, LastModified, Runtime, CodeSize]' \
+  #           --output table
