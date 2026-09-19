@@ -112,7 +112,7 @@ jobs:
       - name: Upload code zip to S3
         run: |
           aws s3 cp build/dog-activities.zip \
-            "s3://${{ vars.S3_BUCKET }}/lambda/code/dog-activities/${{ steps.version.outputs.version }}/dog-activities.zip"
+            "s3://${{ secrets.S3_BUCKET }}/lambda/code/dog-activities/${{ steps.version.outputs.version }}/dog-activities.zip"
 
   push-layer:
     if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/workflow-test')) && needs.detect-changes.outputs.layer_changed == 'true'
@@ -137,7 +137,7 @@ jobs:
       - name: Upload layer zip to S3
         run: |
           aws s3 cp build/aws-xray-sdk.zip \
-            "s3://${{ vars.S3_BUCKET }}/lambda/layers/aws-xray-sdk/${{ steps.version.outputs.version }}/aws-xray-sdk-layer.zip"
+            "s3://${{ secrets.S3_BUCKET }}/lambda/layers/aws-xray-sdk/${{ steps.version.outputs.version }}/aws-xray-sdk-layer.zip"
 
   # deploy-lambda:
   #   # Deploy Lambda function after S3 uploads complete (only on main branch)
