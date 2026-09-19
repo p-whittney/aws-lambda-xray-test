@@ -1,0 +1,125 @@
+name: Build and Push Python Code
+
+on:
+  push:
+    branches: [main, workflow-test]
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions:
+  # for AWS OIDC Role assume
+  id-token: write
+  pull-requests: read
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code_changed: ${{ steps.filter.outputs.code }}
+      layer_changed: ${{ steps.filter.outputs.layer }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'code/dog-activities/**'
+              - 'Makefile'
+            layer:
+              - 'layers/aws-xray-sdk/**'
+              - 'Makefile'
+
+  build-code:
+    if: needs.detect-changes.outputs.code_changed == 'true'
+    needs: [detect-changes]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Build code zip only
+        run: make build/dog-activities.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lambda-code
+          path: build/dog-activities.zip
+          retention-days: 1
+
+  build-layer:
+    if: needs.detect-changes.outputs.layer_changed == 'true'
+    needs: [detect-changes]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Build layer zip only
+        run: make build/aws-xray-sdk.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lambda-layer
+          path: build/aws-xray-sdk.zip
+          retention-days: 1
+
+  push-code:
+    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/workflow-test')) && needs.detect-changes.outputs.code_changed == 'true'
+    needs: [detect-changes, build-code]
+    runs-on: ubuntu-latest
+    environment: main
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: lambda-code
+          path: build
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Get version
+        id: version
+        run: echo "version=$(cat code/dog-activities/VERSION || echo v1.0)" >> $GITHUB_OUTPUT
+      - name: Upload code zip to S3
+        run: |
+          aws s3 cp build/dog-activities.zip \
+            "s3://${{ vars.S3_BUCKET }}/lambda/code/dog-activities/${{ steps.version.outputs.version }}/dog-activities.zip"
+
+  push-layer:
+    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/workflow-test')) && needs.detect-changes.outputs.layer_changed == 'true'
+    needs: [detect-changes, build-layer]
+    runs-on: ubuntu-latest
+    environment: main
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: lambda-layer
+          path: build
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Get version
+        id: version
+        run: echo "version=$(cat layers/aws-xray-sdk/VERSION || echo v1.0)" >> $GITHUB_OUTPUT
+      - name: Upload layer zip to S3
+        run: |
+          aws s3 cp build/aws-xray-sdk.zip \
+            "s3://${{ vars.S3_BUCKET }}/lambda/layers/aws-xray-sdk/${{ steps.version.outputs.version }}/aws-xray-sdk-layer.zip"
