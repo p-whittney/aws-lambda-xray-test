@@ -2,7 +2,7 @@
 
 ## Aim
 
-Deploy and test a python AWS Lambda with AWS X-Ray enabled to test finding issues in AWS server-less sceanareos
+Deploy and test a python AWS Lambda with AWS X-Ray enabled to test finding issues in AWS server-less scenarios
 
 ## Requirements
 
@@ -13,7 +13,7 @@ Deploy and test a python AWS Lambda with AWS X-Ray enabled to test finding issue
 
 ## Resources
 
-- DynomoDB
+- DynamoDB
   - Basic table with Required primary and secondary key
 - SNS attached to Email
 - Python Lambda code 
